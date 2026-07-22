@@ -36,6 +36,23 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
     val messages by viewModel.getMessages(chatId).collectAsState(initial = emptyList())
     val groupMembers by if (chat.isGroup) viewModel.getGroupMembers(chatId).collectAsState(initial = emptyList()) else remember { mutableStateOf(emptyList()) }
     var inputText by remember { mutableStateOf("") }
+    var isSearchMode by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var searchSender by remember { mutableStateOf("") }
+    var searchMediaOnly by remember { mutableStateOf(false) }
+    var showSearchFilters by remember { mutableStateOf(false) }
+    var searchStartDate by remember { mutableStateOf<Long?>(null) }
+    var searchEndDate by remember { mutableStateOf<Long?>(null) }
+    
+    val filteredMessages = if (!isSearchMode) messages else messages.filter { msg ->
+        val queryMatch = searchQuery.isBlank() || msg.text.contains(searchQuery, ignoreCase = true) || msg.senderId.contains(searchQuery, ignoreCase = true)
+        val senderMatch = searchSender.isBlank() || msg.senderId.contains(searchSender, ignoreCase = true)
+        val mediaMatch = if (searchMediaOnly) (msg.mediaPath != null || msg.audioPath != null || msg.documentData != null) else true
+        val startDateMatch = if (searchStartDate != null) msg.timestamp >= searchStartDate!! else true
+        val endDateMatch = if (searchEndDate != null) msg.timestamp <= searchEndDate!! else true
+        queryMatch && senderMatch && mediaMatch && startDateMatch && endDateMatch
+    }
+
     val activeAccount = LocalActiveAccount.current
     
     var showDisappearingDialog by remember { mutableStateOf(false) }
@@ -127,7 +144,33 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
     Scaffold(
         containerColor = Color.Transparent,
         topBar = {
-            TopAppBar(
+            if (isSearchMode) {
+                TopAppBar(
+                    title = {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            placeholder = { Text("Search messages...") },
+                            singleLine = true
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { isSearchMode = false; searchQuery = "" }) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Close Search")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { showSearchFilters = true }) {
+                            Icon(Icons.Filled.FilterList, contentDescription = "Filters")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
+                    )
+                )
+            } else {
+                TopAppBar(
                 title = { 
                     Column(
                         modifier = Modifier
@@ -172,6 +215,9 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                     }
                     IconButton(onClick = { showDisappearingDialog = true }) {
                         Icon(Icons.Filled.Timer, contentDescription = "Disappearing Messages")
+                    }
+                    IconButton(onClick = { isSearchMode = true }) {
+                        Icon(Icons.Filled.Search, contentDescription = "Search Messages")
                     }
                     
                     var expanded by remember { mutableStateOf(false) }
@@ -219,6 +265,7 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                     containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
                 )
             )
+            }
         },
         bottomBar = {
             if (chat.isBlocked) {
@@ -505,7 +552,16 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     reverseLayout = false
                 ) {
-                    items(messages) { message ->
+                    items(filteredMessages, key = { it.id }) { message ->
+                        val visibleState = androidx.compose.runtime.remember { 
+                            androidx.compose.animation.core.MutableTransitionState(false).apply { targetState = true } 
+                        }
+                        androidx.compose.animation.AnimatedVisibility(
+                            visibleState = visibleState,
+                            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(initialOffsetY = { it / 2 }),
+                            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically(targetOffsetY = { -it / 2 }),
+                            modifier = Modifier.animateItem()
+                        ) {
                         val isMe = message.senderId == activeAccount?.id
                         var senderName: String? = null
                         var senderStatus: String? = null
@@ -546,6 +602,7 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                                 }
                             }
                         )
+                        }
                     }
                 }
                 
@@ -569,6 +626,47 @@ fun ChatScreen(viewModel: AppViewModel, chatId: String, navController: NavContro
                     }
                 }
             }
+        }
+        
+        
+        if (showSearchFilters) {
+            AlertDialog(
+                onDismissRequest = { showSearchFilters = false },
+                title = { Text("Search Filters") },
+                text = {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = searchSender,
+                            onValueChange = { searchSender = it },
+                            label = { Text("Sender ID/Name") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = searchMediaOnly,
+                                onCheckedChange = { searchMediaOnly = it }
+                            )
+                            Text("Has Media (Photos/Voice/Files)")
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(onClick = { searchStartDate = if (searchStartDate == null) System.currentTimeMillis() - 86400000L * 7 else null }) {
+                                Text(if (searchStartDate == null) "Start: 7 Days Ago" else "Clear Start")
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(onClick = { searchEndDate = if (searchEndDate == null) System.currentTimeMillis() else null }) {
+                                Text(if (searchEndDate == null) "End: Now" else "Clear End")
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showSearchFilters = false }) { Text("Apply") }
+                }
+            )
         }
         
         if (showDisappearingDialog) {
@@ -729,16 +827,20 @@ fun MessageBubble(message: Message, isMe: Boolean, senderName: String? = null, s
             Column {
                 if (message.documentData != null) {
                     val documentData = message.documentData
-                    var name = "File"
-                    var size = 0L
-                    var mime = ""
-                    try {
-                        val json = org.json.JSONObject(documentData)
-                        name = json.optString("name", "File")
-                        size = json.optLong("size", 0L)
-                        mime = json.optString("mimeType", "")
-                    } catch(e: Exception) {
+                    val parsedData = androidx.compose.runtime.remember(documentData) {
+                        var name = "File"
+                        var size = 0L
+                        var mime = ""
+                        try {
+                            val json = org.json.JSONObject(documentData)
+                            name = json.optString("name", "File")
+                            size = json.optLong("size", 0L)
+                            mime = json.optString("mimeType", "")
+                        } catch(e: Exception) {}
+                        Triple(name, size, mime)
                     }
+                    val (name, size, mime) = parsedData
+
                     
                     val icon = if (mime.startsWith("image/")) Icons.Filled.Image
                         else if (mime.startsWith("video/")) Icons.Filled.VideoFile
@@ -817,28 +919,28 @@ fun MessageBubble(message: Message, isMe: Boolean, senderName: String? = null, s
                         Text(message.reaction)
                     }
                 }
-            }
-        }
-        
-        Spacer(Modifier.height(4.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                formatTime(message.timestamp), 
-                style = MaterialTheme.typography.labelSmall, 
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            if (message.expiresAt != null) {
-                Spacer(Modifier.width(4.dp))
-                Icon(Icons.Filled.Timer, contentDescription = "Disappearing", modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (isMe) {
-                Spacer(Modifier.width(4.dp))
-                if (message.isRead) {
-                    Icon(Icons.Filled.DoneAll, contentDescription = "Read", modifier = Modifier.size(16.dp), tint = Color(0xFF4CAF50))
-                } else if (message.isDelivered) {
-                    Icon(Icons.Filled.DoneAll, contentDescription = "Delivered", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    Icon(Icons.Filled.Check, contentDescription = "Sent", modifier = Modifier.size(16.dp), tint = Color(0xFF4CAF50))
+                
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.align(Alignment.End)) {
+                    Text(
+                        formatTime(message.timestamp), 
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), 
+                        color = if (isMe) MaterialTheme.colorScheme.onPrimary.copy(alpha=0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=0.7f)
+                    )
+                    if (message.expiresAt != null) {
+                        Spacer(Modifier.width(4.dp))
+                        Icon(Icons.Filled.Timer, contentDescription = "Disappearing", modifier = Modifier.size(12.dp), tint = if (isMe) MaterialTheme.colorScheme.onPrimary.copy(alpha=0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=0.7f))
+                    }
+                    if (isMe) {
+                        Spacer(Modifier.width(4.dp))
+                        if (message.isRead) {
+                            Icon(Icons.Filled.DoneAll, contentDescription = "Read", modifier = Modifier.size(14.dp), tint = Color(0xFF4CAF50))
+                        } else if (message.isDelivered) {
+                            Icon(Icons.Filled.DoneAll, contentDescription = "Delivered", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onPrimary.copy(alpha=0.7f))
+                        } else {
+                            Icon(Icons.Filled.Check, contentDescription = "Sent", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onPrimary.copy(alpha=0.7f))
+                        }
+                    }
                 }
             }
         }
@@ -865,10 +967,11 @@ fun MessageBubble(message: Message, isMe: Boolean, senderName: String? = null, s
     }
 }
 
+
+private val timeFormatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
 fun formatTime(timestamp: Long): String {
     val date = Date(timestamp)
-    val formatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-    return formatter.format(date)
+    return timeFormatter.format(date)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
