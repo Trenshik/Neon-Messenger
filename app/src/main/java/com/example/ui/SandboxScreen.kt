@@ -72,7 +72,7 @@ fun SandboxScreen(viewModel: AppViewModel, botId: String, navController: NavCont
         }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            TabRow(selectedTabIndex = selectedTabIndex) {
+            ScrollableTabRow(selectedTabIndex = selectedTabIndex, edgePadding = 8.dp) {
                 Tab(
                     selected = selectedTabIndex == 0,
                     onClick = { selectedTabIndex = 0 },
@@ -102,6 +102,12 @@ fun SandboxScreen(viewModel: AppViewModel, botId: String, navController: NavCont
                     onClick = { selectedTabIndex = 4 },
                     text = { Text("Settings") },
                     icon = { Icon(Icons.Filled.Settings, contentDescription = null) }
+                )
+                Tab(
+                    selected = selectedTabIndex == 5,
+                    onClick = { selectedTabIndex = 5 },
+                    text = { Text("Console") },
+                    icon = { Icon(Icons.Filled.BugReport, contentDescription = null) }
                 )
             }
 
@@ -304,6 +310,72 @@ fun SandboxScreen(viewModel: AppViewModel, botId: String, navController: NavCont
                             Row(modifier = Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text(collab.username, fontWeight = FontWeight.Bold)
                                 Text(collab.role, color = MaterialTheme.colorScheme.secondary)
+                            }
+                        }
+                    }
+                }
+            } else if (selectedTabIndex == 5) {
+                // Test Console
+                var consoleInput by remember { mutableStateOf("") }
+                var consoleOutput by remember { mutableStateOf("Ready to send test payload...") }
+                
+                Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                    Text("API Test Console", style = MaterialTheme.typography.titleLarge)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Send a raw text message and view the simulated JSON payload response.", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+                    Spacer(Modifier.height(16.dp))
+                    
+                    OutlinedTextField(
+                        value = consoleInput,
+                        onValueChange = { consoleInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Enter test message...") },
+                        label = { Text("Message Payload") }
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = {
+                            if (consoleInput.isNotBlank()) {
+                                val simulatedResponseText = simulateBotExecution(consoleInput, bot.name, codeText)
+                                val jsonResponse = """
+{
+  "status": 200,
+  "request": {
+    "message": "$consoleInput",
+    "bot_id": "${bot.id}",
+    "timestamp": ${System.currentTimeMillis()}
+  },
+  "response": {
+    "text": "$simulatedResponseText",
+    "type": "text/plain"
+  }
+}
+""".trimIndent()
+                                consoleOutput = jsonResponse
+                            }
+                        },
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("Send Request")
+                    }
+                    
+                    Spacer(Modifier.height(16.dp))
+                    Text("Raw Response:", style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Box(modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
+                        .padding(16.dp)
+                    ) {
+                        LazyColumn {
+                            item {
+                                Text(
+                                    text = consoleOutput,
+                                    color = Color(0xFF4CAF50),
+                                    fontFamily = FontFamily.Monospace,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
                             }
                         }
                     }
